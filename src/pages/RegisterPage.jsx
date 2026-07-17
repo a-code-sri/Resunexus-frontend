@@ -25,6 +25,12 @@ setMsg("Passwords do not match");
 return;
 
 }
+alert(
+        "Registration is currently disabled.\n\n" +
+        "We're limiting new accounts while the platform is in early access due to resource constraints."
+    );
+
+return;
 
 try{
 

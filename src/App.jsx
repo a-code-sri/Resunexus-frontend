@@ -295,8 +295,7 @@ export default function App() {
             const active = workflowStep > index;
             const current = workflowStep === stepNumber;
 
-            const clickable =
-                stepNumber === 1 || stepNumber === 5;
+            const clickable = stepNumber === 1 || stepNumber === 5 || stepNumber==3;
 
 
             return (
@@ -308,11 +307,31 @@ export default function App() {
                       if (!clickable) return;
 
                       if (stepNumber === 1) {
+                          setWorkflowStep(1);
+
                           setActiveTab("upload");
+
+                          setSelectedFile(null);
+
+                          setMessage("");
+                      }
+
+                     if (stepNumber === 3) {
+
+                          setWorkflowStep(3);
+
+                          setActiveTab("upload");
+
+                          setSelectedFile(null);
+
+                          setMessage("");
+
                       }
 
                       if (stepNumber === 5) {
+
                           setActiveTab("results");
+
                       }
 
                   }}
@@ -525,7 +544,7 @@ export default function App() {
                     id="fileUpload"
                     type="file"
                     className="hidden"
-                    accept=".pdf,.zip"
+                    accept=".pdf,.zip, .docx"
                     onChange={handleFileChange}
                   />
                 </label>

@@ -6,7 +6,8 @@ import { Upload, Download, Search, ExternalLink, Layers, CheckCircle2, Loader2, 
 
 import { motion, AnimatePresence } from "motion/react";
 
-import { uploadJD, uploadCV, getStatus, getResults, downloadResults } from "./api.js";
+import { uploadJD, uploadCV, getStatus, getResults, downloadResults, saveCriterion, removeCriterion } from "./api.js";
+import CriteriaPanel from "./components/CriteriaPanel.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 
 import logo from "./resunexus-logo.png";
@@ -30,6 +31,18 @@ const scoreBadge = (score) => {
   return "text-rose-700 bg-rose-50 border-rose-200";
 };
 
+const DEFAULT_WEIGHT = 50;
+
+const equalWeights = (n) => Array(n).fill(DEFAULT_WEIGHT);
+
+// Weighted average of per-criterion scores. With equal weights this is the plain mean.
+const weightedTotal = (scores = [], weights = []) => {
+  if (scores.length === 0) return 0;
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return 0;
+  return scores.reduce((acc, s, i) => acc + s * (weights[i] ?? 0), 0) / sum;
+};
+
 export default function App() {
   const { logout , user } = useAuth();
   const [activeTab, setActiveTab] = useState("upload");
@@ -47,6 +60,9 @@ export default function App() {
   });
   const [totalCandidates, setTotalCandidates] = useState(0);
   const [processedCandidates, setProcessedCandidates] = useState(0);
+  const [weights, setWeights] = useState([]);
+  const [criteriaBusy, setCriteriaBusy] = useState("");
+  const [criteriaError, setCriteriaError] = useState("");
 
   const pollingRef = useRef(null);
   const topScrollRef = useRef(null);
@@ -152,7 +168,7 @@ export default function App() {
 
   const handleDownload = async () => {
     try {
-      await downloadResults();
+      await downloadResults(activeWeights);
     } catch (err) {
       console.error(err);
     }
@@ -187,7 +203,88 @@ export default function App() {
     );
   };
 
-  const sortedResults = [...results]
+  // Weights stay in sync with the criteria list: if the length ever differs
+  // (new JD, criterion added/removed elsewhere), fall back to equal weights.
+  const activeWeights =
+    weights.length === skills.length ? weights : equalWeights(skills.length);
+
+  // total_score shown/sorted on the leaderboard is always the weighted total
+  const rowsWithTotals = results.map((r) => ({
+    ...r,
+    total_score: weightedTotal(r.scores, activeWeights),
+  }));
+
+  const handleWeightChange = (index, value) => {
+    setWeights(() => {
+      const next = [...activeWeights];
+      next[index] = value;
+      return next;
+    });
+    setExpandedRow(null);
+  };
+
+  const handleResetWeights = () => setWeights(equalWeights(skills.length));
+
+  // Add (index === null) or change (index = i) a criterion. LLM re-scores only that criterion.
+  const handleSaveCriterion = async (text, index) => {
+    const n = results.length;
+    setCriteriaError("");
+    setCriteriaBusy(
+      `Evaluating ${n} resume${n === 1 ? "" : "s"} for "${text}"… this may take a minute.`
+    );
+    try {
+      const data = await saveCriterion(text, index);
+      setSkills(data.skills || []);
+      setResults(data.rows || []);
+      if (index === null) {
+        // number of criteria changed -> reset to equal weights
+        setWeights(equalWeights((data.skills || []).length));
+      }
+      setExpandedRow(null);
+      return true;
+    } catch (err) {
+      console.error(err);
+      setCriteriaError(err.message || "Could not evaluate criterion.");
+      return false;
+    } finally {
+      setCriteriaBusy("");
+    }
+  };
+
+  // Remove a criterion. Pure score recomputation, no LLM call.
+  const handleRemoveCriterion = async (index) => {
+    setCriteriaError("");
+    const prevSkills = skills;
+    const prevResults = results;
+    const prevWeights = activeWeights;
+
+    // Update instantly in the UI
+    const nextSkills = skills.filter((_, i) => i !== index);
+    setSkills(nextSkills);
+    setResults(
+      results.map((r) => ({
+        ...r,
+        scores: (r.scores || []).filter((_, i) => i !== index),
+      }))
+    );
+    setWeights(equalWeights(nextSkills.length));
+    setExpandedRow(null);
+    if (sortConfig.key.startsWith("skill_")) {
+      setSortConfig({ key: "total_score", dir: "desc" });
+    }
+
+    try {
+      await removeCriterion(index); // keeps the server session / saved data in sync
+    } catch (err) {
+      console.error(err);
+      setSkills(prevSkills);
+      setResults(prevResults);
+      setWeights(prevWeights);
+      setCriteriaError(err.message || "Could not remove criterion.");
+    }
+  };
+
+  const sortedResults = [...rowsWithTotals]
     .filter((r) =>
       r.cv_name?.toLowerCase().includes(searchQuery.toLowerCase())
     )
@@ -663,6 +760,20 @@ export default function App() {
                   />
                 </div>
               </div>
+
+              {results.length > 0 && skills.length > 0 && (
+                <CriteriaPanel
+                  skills={skills}
+                  weights={activeWeights}
+                  resultCount={results.length}
+                  busyLabel={criteriaBusy}
+                  error={criteriaError}
+                  onSave={handleSaveCriterion}
+                  onRemove={handleRemoveCriterion}
+                  onWeightChange={handleWeightChange}
+                  onResetWeights={handleResetWeights}
+                />
+              )}
 
               <div
                 ref={topScrollRef}

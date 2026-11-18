@@ -149,7 +149,7 @@ export async function uploadCV(file) {
 export async function getStatus() {
     const response = await fetch(`${API_BASE_URL}/status` , {
         headers : {
-            ...authHeaders
+            ...authHeaders()
         }
     });
     
@@ -182,9 +182,13 @@ export async function getResults() {
 
 
 
-export async function downloadResults() {
+export async function downloadResults(weights) {
 
-    const response = await fetch(`${API_BASE_URL}/download` , {
+    const query = weights && weights.length
+        ? `?weights=${weights.join(",")}`
+        : "";
+
+    const response = await fetch(`${API_BASE_URL}/download${query}` , {
         headers : {
             ...authHeaders(),
         }
@@ -210,4 +214,65 @@ export async function downloadResults() {
     link.remove();
 
     window.URL.revokeObjectURL(url);
+}
+
+
+// Add a new criterion (index omitted) or change one (index given).
+// Only this criterion is re-scored, for all resumes on the leaderboard.
+export async function saveCriterion(criterion, index = null) {
+
+    const response = await fetch(`${API_BASE_URL}/criteria`, {
+
+        method: "POST",
+
+        headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+        },
+
+        body: JSON.stringify({ criterion, index }),
+    });
+
+    if (response.status === 401) {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+    }
+
+    if (!response.ok) {
+        let detail = "Failed to evaluate criterion";
+        try {
+            detail = (await response.json()).detail || detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+    }
+
+    return await response.json();
+}
+
+// Remove a criterion. No LLM involved.
+export async function removeCriterion(index) {
+
+    const response = await fetch(`${API_BASE_URL}/criteria/${index}`, {
+
+        method: "DELETE",
+
+        headers: {
+            ...authHeaders(),
+        },
+    });
+
+    if (response.status === 401) {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+    }
+
+    if (!response.ok) {
+        let detail = "Failed to remove criterion";
+        try {
+            detail = (await response.json()).detail || detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+    }
+
+    return await response.json();
 }
